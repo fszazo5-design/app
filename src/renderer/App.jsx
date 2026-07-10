@@ -22,14 +22,25 @@ export default function App() {
   const [cloudStatus, setCloudStatus] = useState('')
   const [loading, setLoading] = useState(true)
 
+  // روابط الـ API المباشرة الخاصة بك للـ Backend
+  const API_COMPANIES_URL = 'https://app-iplj-flame.vercel.app/api/companies'
+  const API_SYNC_URL = 'https://app-iplj-flame.vercel.app/api/sync'
+
   const loadCompanies = useCallback(async () => {
     try {
-      // التحقق من أن الدالة مدعومة وتعمل (لتجنب انهيار المتصفح)
       if (typeof getAllCompanies === 'function') {
         const docs = await getAllCompanies()
-        if (docs) {
+        if (docs && docs.length > 0) {
           setCompanies(docs)
           if (typeof rebuildIndex === 'function') rebuildIndex(docs)
+        } else {
+          // 🌐 إذا لم تكن هناك بيانات محلية، يتم جلب البيانات مباشرة من رابط الـ API الخاص بك
+          const response = await fetch(API_COMPANIES_URL)
+          const data = await response.json()
+          if (data && data.status === 'success' && data.companies) {
+            setCompanies(data.companies)
+            if (typeof rebuildIndex === 'function') rebuildIndex(data.companies)
+          }
         }
       }
     } catch (error) {
@@ -40,7 +51,6 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    // تشغيل العمليات فقط إذا كانت البيئة تدعم Electron و P2P
     if (window.electronP2P) {
       try {
         loadCompanies()
@@ -59,15 +69,14 @@ export default function App() {
       const refreshInterval = setInterval(loadCompanies, 15000)
       return () => clearInterval(refreshInterval)
     } else {
-      // إذا كنا في المتصفح العادي (Vercel)، يتم إنهاء حالة التحميل بأمان لعرض الواجهة
-      setLoading(false)
+      // 🌐 تشغيل الجلب المباشر من الـ API عند فتح الواجهة من المتصفح (الهاتف)
+      loadCompanies()
     }
   }, [loadCompanies])
 
   const handleAdd = async (data) => {
     if (editing) {
       try {
-        // قمنا أيضاً بإصلاح دمج المعرف هنا ليعمل التعديل بشكل صحيح
         const updated = await updateCompany({ ...data, _id: editing._id })
         await loadCompanies()
         setEditing(null)
@@ -115,14 +124,27 @@ export default function App() {
   const handleCloudSync = async () => {
     setCloudStatus('جارٍ المزامنة مع السحابة...')
     try {
-      const result = await syncToCloud()
+      // 🌐 إرسال طلب الحفظ والمزامنة (POST) المباشر إلى رابط الـ API الخاص بك
+      const response = await fetch(API_SYNC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companies: companies })
+      })
+      const result = await response.json()
+
       if (result && result.ok) {
-        setCloudStatus(`تم رفع ${result.count} شركة إلى النسخة السحابية`)
+        setCloudStatus(`تم رفع ومزامنة ${result.total || companies.length} شركة إلى النسخة السحابية`)
       } else {
-        setCloudStatus(`فشل: ${result?.reason || 'خطأ غير معروف'}`)
+        // إذا فشل الاتصال المباشر، يتم الرجوع للدالة الاحتياطية الأصلية
+        const fallbackResult = await syncToCloud()
+        if (fallbackResult && fallbackResult.ok) {
+          setCloudStatus(`تم رفع ${fallbackResult.count} شركة إلى النسخة السحابية`)
+        } else {
+          setCloudStatus(`فشل: ${result?.error || fallbackResult?.reason || 'خطأ غير معروف'}`)
+        }
       }
     } catch (error) {
-      setCloudStatus('فشلت المزامنة في هذه البيئة')
+      setCloudStatus('فشلت المزامنة التلقائية مع الرابط السحابي')
     }
     setTimeout(() => setCloudStatus(''), 5000)
   }
