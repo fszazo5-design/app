@@ -22,9 +22,9 @@ export default function App() {
   const [cloudStatus, setCloudStatus] = useState('')
   const [loading, setLoading] = useState(true)
 
-  // روابط الـ API المباشرة الخاصة بك للـ Backend
-  const API_COMPANIES_URL = 'https://app-iplj-flame.vercel.app/api/companies'
-  const API_SYNC_URL = 'https://app-iplj-flame.vercel.app/api/sync'
+  // 🌐 الروابط الجديدة والمستقرة الخاصة بسيرفر Express المباشر
+  const API_COMPANIES_URL = 'https://bak-end-pink.vercel.app/api/companies'
+  const API_SYNC_URL = 'https://bak-end-pink.vercel.app/api/sync'
 
   const loadCompanies = useCallback(async () => {
     try {
@@ -34,7 +34,7 @@ export default function App() {
           setCompanies(docs)
           if (typeof rebuildIndex === 'function') rebuildIndex(docs)
         } else {
-          // 🌐 إذا لم تكن هناك بيانات محلية، يتم جلب البيانات مباشرة من رابط الـ API الخاص بك
+          // 🌐 جلب البيانات مباشرة من رابط الـ API الجديد الخاص بك عند عدم وجود بيانات محلية
           const response = await fetch(API_COMPANIES_URL)
           const data = await response.json()
           if (data && data.status === 'success' && data.companies) {
@@ -69,7 +69,7 @@ export default function App() {
       const refreshInterval = setInterval(loadCompanies, 15000)
       return () => clearInterval(refreshInterval)
     } else {
-      // 🌐 تشغيل الجلب المباشر من الـ API عند فتح الواجهة من المتصفح (الهاتف)
+      // 🌐 تشغيل الجلب المباشر من الـ API الجديد عند فتح الواجهة من المتصفح (الهاتف)
       loadCompanies()
     }
   }, [loadCompanies])
@@ -124,7 +124,7 @@ export default function App() {
   const handleCloudSync = async () => {
     setCloudStatus('جارٍ المزامنة مع السحابة...')
     try {
-      // 🌐 إرسال طلب الحفظ والمزامنة (POST) المباشر إلى رابط الـ API الخاص بك
+      // 🌐 إرسال طلب الحفظ والمزامنة السحابية مباشرة إلى السيرفر الجديد
       const response = await fetch(API_SYNC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
