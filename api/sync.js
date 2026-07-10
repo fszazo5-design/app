@@ -18,6 +18,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
+  // ⚠️ التحقق من وجود متغير البيئة MONGODB_URI قبل بدء معالجة الحفظ والاتصال
+  if (!process.env.MONGODB_URI) {
+    console.error('خطأ: متغير البيئة MONGODB_URI غير معرّف في إعدادات Vercel!');
+    return res.status(500).json({ 
+      error: 'Database connection string (MONGODB_URI) is missing in environment variables.' 
+    })
+  }
+
   try {
     const { companies } = req.body || {}
 
