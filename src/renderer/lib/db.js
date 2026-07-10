@@ -1,16 +1,20 @@
-import PouchDB from 'pouchdb'
+import PouchDB from 'pouchdb/dist/pouchdb.js' // 👈 استدعاء النسخة المتوافقة عالمياً مع المتصفحات لـ Vite
 
-// Local-first offline database. Data persists to disk via LevelDB adapter
-// (PouchDB's default in Node/Electron environments).
-const localDB = new PouchDB('companies_db')
+// تهيئة قاعدة البيانات بأمان حسب البيئة
+let localDB;
+
+try {
+  localDB = new PouchDB('companies_db')
+} catch (e) {
+  // حل احتياطي في حال رفض المتصفح التخزين المحلي العادي (مثل وضع التصفح الخفي)
+  localDB = new PouchDB('companies_db', { adapter: 'idb' })
+}
 
 // Counter document key used to track the last assigned auto-increment id.
 const COUNTER_DOC_ID = '_local/auto_increment_counter'
 
 /**
  * Returns the next auto-increment id (starts at 1, counts up: 1, 2, 3, ...).
- * Uses a PouchDB local document so it does not participate in replication,
- * keeping the counter per-device and avoiding sync conflicts.
  */
 export async function getNextId() {
   let current = 0
@@ -19,24 +23,26 @@ export async function getNextId() {
     current = doc.value || 0
   } catch (err) {
     if (err.status !== 404) throw err
-    // Counter not yet initialized; start at 0 so the first id is 1.
   }
   const next = current + 1
+  
+  // جلب الـ rev في حال كان المستند موجوداً مسبقاً لتفادي خطأ الـ Conflict
+  let existingRev;
+  try {
+    const existingDoc = await localDB.get(COUNTER_DOC_ID)
+    existingRev = existingDoc._rev
+  } catch(e){}
+
   await localDB.put({
     _id: COUNTER_DOC_ID,
+    _rev: existingRev,
     value: next,
   })
   return next
 }
 
 /**
- * Company schema (الشركات):
- *   id            (Number, auto-increment, mandatory, starts at 1)
- *   company_name  (String, required)  — اسم الشركة
- *   company_location (String, required) — موقع الشركة
- *   mobile_number (String, required)  — رقم الموبايل
- *   specialization (String, required) — التخصص
- *   website_or_page_link (String, optional) — رابط الويب سايت أو الصفحة
+ * Company schema (الشركات)
  */
 export async function addCompany(company) {
   validateCompany(company)
@@ -78,11 +84,17 @@ export async function deleteCompany(docId) {
 }
 
 export async function getAllCompanies() {
-  const result = await localDB.allDocs({ include_docs: true, attachments: false })
-  return result.rows
-    .filter((row) => row.id.startsWith('company_'))
-    .map((row) => row.doc)
-    .sort((a, b) => a.id - b.id)
+  try {
+    const result = await localDB.allDocs({ include_docs: true, attachments: false })
+    if (!result || !result.rows) return []
+    return result.rows
+      .filter((row) => row.id && row.id.startsWith('company_'))
+      .map((row) => row.doc)
+      .sort((a, b) => a.id - b.id)
+  } catch (error) {
+    console.error(error)
+    return []
+  }
 }
 
 export async function getCompanyById(id) {
