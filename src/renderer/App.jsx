@@ -23,45 +23,72 @@ export default function App() {
   const [loading, setLoading] = useState(true)
 
   const loadCompanies = useCallback(async () => {
-    const docs = await getAllCompanies()
-    setCompanies(docs)
-    rebuildIndex(docs)
-    setLoading(false)
+    try {
+      // التحقق من أن الدالة مدعومة وتعمل (لتجنب انهيار المتصفح)
+      if (typeof getAllCompanies === 'function') {
+        const docs = await getAllCompanies()
+        if (docs) {
+          setCompanies(docs)
+          if (typeof rebuildIndex === 'function') rebuildIndex(docs)
+        }
+      }
+    } catch (error) {
+      console.error("خطأ أثناء تحميل الشركات في هذه البيئة:", error)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
-    loadCompanies()
-    startP2PSync()
-    handleGetAllDocsRequest()
-    handleReceiveDocs()
-
+    // تشغيل العمليات فقط إذا كانت البيئة تدعم Electron و P2P
     if (window.electronP2P) {
-      window.electronP2P.onPeerDiscovered((_peer) => {
-        window.electronP2P.getPeers().then(setPeers)
-      })
-      window.electronP2P.getPeers().then(setPeers)
-    }
+      try {
+        loadCompanies()
+        if (typeof startP2PSync === 'function') startP2PSync()
+        if (typeof handleGetAllDocsRequest === 'function') handleGetAllDocsRequest()
+        if (typeof handleReceiveDocs === 'function') handleReceiveDocs()
 
-    // Refresh from peers every 15s (the sync loop also runs, but we want
-    // the UI to reflect newly pulled docs).
-    const refreshInterval = setInterval(loadCompanies, 15000)
-    return () => clearInterval(refreshInterval)
+        window.electronP2P.onPeerDiscovered((_peer) => {
+          window.electronP2P.getPeers().then(setPeers).catch(() => {})
+        })
+        window.electronP2P.getPeers().then(setPeers).catch(() => {})
+      } catch (error) {
+        console.error("خطأ في ربط دوال الـ P2P:", error)
+      }
+
+      const refreshInterval = setInterval(loadCompanies, 15000)
+      return () => clearInterval(refreshInterval)
+    } else {
+      // إذا كنا في المتصفح العادي (Vercel)، يتم إنهاء حالة التحميل بأمان لعرض الواجهة
+      setLoading(false)
+    }
   }, [loadCompanies])
 
   const handleAdd = async (data) => {
     if (editing) {
-      const updated = await updateCompany(editing)
-      await loadCompanies()
-      setEditing(null)
-      setShowForm(false)
-      await pushToAllPeers()
+      try {
+        // قمنا أيضاً بإصلاح دمج المعرف هنا ليعمل التعديل بشكل صحيح
+        const updated = await updateCompany({ ...data, _id: editing._id })
+        await loadCompanies()
+        setEditing(null)
+        setShowForm(false)
+        if (typeof pushToAllPeers === 'function') await pushToAllPeers()
+      } catch (error) {
+        console.error(error)
+      }
       return { ok: true }
     }
-    const doc = await addCompany(data)
-    addToIndex(doc)
-    setCompanies((prev) => [...prev, doc].sort((a, b) => a.id - b.id))
-    setShowForm(false)
-    await pushToAllPeers()
+    try {
+      const doc = await addCompany(data)
+      if (doc) {
+        if (typeof addToIndex === 'function') addToIndex(doc)
+        setCompanies((prev) => [...prev, doc].sort((a, b) => a.id - b.id))
+      }
+      setShowForm(false)
+      if (typeof pushToAllPeers === 'function') await pushToAllPeers()
+    } catch (error) {
+      console.error(error)
+    }
     return { ok: true }
   }
 
@@ -71,10 +98,14 @@ export default function App() {
   }
 
   const handleDelete = async (company) => {
-    await deleteCompany(company._id)
-    removeFromIndex(company)
-    setCompanies((prev) => prev.filter((c) => c._id !== company._id))
-    await pushToAllPeers()
+    try {
+      await deleteCompany(company._id)
+      if (typeof removeFromIndex === 'function') removeFromIndex(company)
+      setCompanies((prev) => prev.filter((c) => c._id !== company._id))
+      if (typeof pushToAllPeers === 'function') await pushToAllPeers()
+    } catch (error) {
+      console.error(error)
+    }
   }
 
   const handleSearch = (results) => {
@@ -83,11 +114,15 @@ export default function App() {
 
   const handleCloudSync = async () => {
     setCloudStatus('جارٍ المزامنة مع السحابة...')
-    const result = await syncToCloud()
-    if (result.ok) {
-      setCloudStatus(`تم رفع ${result.count} شركة إلى النسخة السحابية`)
-    } else {
-      setCloudStatus(`فشل: ${result.reason}`)
+    try {
+      const result = await syncToCloud()
+      if (result && result.ok) {
+        setCloudStatus(`تم رفع ${result.count} شركة إلى النسخة السحابية`)
+      } else {
+        setCloudStatus(`فشل: ${result?.reason || 'خطأ غير معروف'}`)
+      }
+    } catch (error) {
+      setCloudStatus('فشلت المزامنة في هذه البيئة')
     }
     setTimeout(() => setCloudStatus(''), 5000)
   }
@@ -139,7 +174,7 @@ export default function App() {
           <div className="text-center py-20 text-slate-500 text-lg">جارٍ التحميل...</div>
         ) : (
           <CompanyList
-            companies={displayCompanies}
+            companies={displayCompanies || []}
             onEdit={handleEdit}
             onDelete={handleDelete}
             isSearch={searchResults !== null}
@@ -148,8 +183,8 @@ export default function App() {
       </main>
 
       <StatusBar
-        peerCount={peers.length}
-        totalCount={companies.length}
+        peerCount={peers ? peers.length : 0}
+        totalCount={companies ? companies.length : 0}
         cloudStatus={cloudStatus}
       />
     </div>
